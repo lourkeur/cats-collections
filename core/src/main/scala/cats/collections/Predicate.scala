@@ -2,16 +2,35 @@ package cats.collections
 
 import cats._
 
+private object PredicateHelpers {
+  // use the static Eval instances to reduce memory footprint
+  @inline def boolToNow(b: Boolean) = if (b) Eval.True else Eval.False
+
+  trait FromApplyF[A] extends Predicate[A] {
+    override def applyF(a: A): Eval[Boolean] =
+      throw new NotImplementedError("applyF implementation missing")
+    override def apply(a: A) = applyF(a).value
+  }
+}
+
 /**
  * An intensional set, which is a set which instead of enumerating its
  * elements as a extensional set does, it is defined by a predicate
  * which is a test for membership.
  */
 abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
+  import PredicateHelpers._
+
+  // leave apply abstract so any SAM expressions pick it up.
+
+  private[collections] def applyF(a: A): Eval[Boolean] = boolToNow(apply(a))
+
   /**
    * returns a predicate which is the union of this predicate and another
    */
-  def union[B <: A](other: Predicate[B]): Predicate[B] = Predicate(a => apply(a) || other(a))
+  def union[B <: A](other: Predicate[B]): Predicate[B] = new FromApplyF[B] {
+    override def applyF(a: B) = Eval.defer(self.applyF(a)).flatMap(if (_) Eval.True else other.applyF(a))
+  }
 
   /**
    * returns a predicate which is the union of this predicate and another
@@ -21,7 +40,9 @@ abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
   /**
    * returns a predicate which is the intersection of this predicate and another
    */
-  def intersection[B <: A](other: Predicate[B]): Predicate[B] = Predicate(a => apply(a) && other(a))
+  def intersection[B <: A](other: Predicate[B]): Predicate[B] = new FromApplyF[B] {
+    override def applyF(a: B) = Eval.defer(self.applyF(a)).flatMap(if (_) other.applyF(a) else Eval.False)
+  }
 
   /**
    * returns a predicate which is the intersection of this predicate and another
@@ -36,7 +57,7 @@ abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
   /**
    * Returns the predicate which is the the difference of another predicate removed from this predicate
    */
-  def diff[B <: A](remove: Predicate[B]): Predicate[B] = Predicate(a => apply(a) && !remove(a))
+  def diff[B <: A](remove: Predicate[B]): Predicate[B] = self intersection remove.negate
 
   /**
    * Returns the predicate which is the the difference of another predicate removed from this predicate
@@ -46,7 +67,10 @@ abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
   /**
    * Return the opposite predicate
    */
-  def negate: Predicate[A] = Predicate(a => !apply(a))
+  def negate: Predicate[A] = new FromApplyF[A] {
+    override def applyF(a: A) = self.applyF(a).flatMap(r => boolToNow(!r))
+    override def negate = self  // double negation is identity
+  }
 
   /**
    * Return the opposite predicate
