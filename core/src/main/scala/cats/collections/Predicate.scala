@@ -76,6 +76,10 @@ abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
    * Return the opposite predicate
    */
   def unary_!(): Predicate[A] = negate
+
+  def contramap[B](f: B => A): Predicate[B] = new FromApplyF[B] {
+    override def applyF(a: B) = Eval.defer(self.applyF(f(a)))
+  }
 }
 
 object Predicate extends PredicateInstances {
@@ -89,9 +93,9 @@ object Predicate extends PredicateInstances {
 trait PredicateInstances {
   implicit def predicateContravariantMonoidal: ContravariantMonoidal[Predicate] = new ContravariantMonoidal[Predicate] {
     override def contramap[A, B](fb: Predicate[A])(f: B => A): Predicate[B] =
-      Predicate(f andThen fb.apply)
+      fb.contramap(f)
     override def product[A, B](fa: Predicate[A], fb: Predicate[B]): Predicate[(A, B)] =
-      Predicate(v => fa(v._1) || fb(v._2))
+      fa.contramap[(A,B)](_._1) union fb.contramap(_._2)
     override def unit: Predicate[Unit] = Predicate.empty
   }
 
