@@ -1,6 +1,7 @@
 package cats.collections
 
 import cats._
+import cats.data.AndThen
 
 private object PredicateHelpers {
   // use the static Eval instances to reduce memory footprint
@@ -9,7 +10,7 @@ private object PredicateHelpers {
   trait FromApplyF[A] extends Predicate[A] {
     override def applyF(a: A): Eval[Boolean] =
       throw new NotImplementedError("applyF implementation missing")
-    override def apply(a: A) = applyF(a).value
+    val applyAndThen = AndThen(applyF(_)).andThen(_.value)
   }
 }
 
@@ -18,12 +19,14 @@ private object PredicateHelpers {
  * elements as a extensional set does, it is defined by a predicate
  * which is a test for membership.
  */
-abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
+sealed abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
   import PredicateHelpers._
 
-  // leave apply abstract so any SAM expressions pick it up.
+  def apply(a: A) = applyAndThen(a)
 
-  private[collections] def applyF(a: A): Eval[Boolean] = boolToNow(apply(a))
+  val applyAndThen: AndThen[A, Boolean]
+
+  private[collections] def applyF(a: A): Eval[Boolean] = boolToNow(applyAndThen(a))
 
   /**
    * returns a predicate which is the union of this predicate and another
@@ -67,8 +70,8 @@ abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
   /**
    * Return the opposite predicate
    */
-  def negate: Predicate[A] = new FromApplyF[A] {
-    override def applyF(a: A) = self.applyF(a).flatMap(r => boolToNow(!r))
+  def negate: Predicate[A] = new Predicate[A] {
+    val applyAndThen = self.applyAndThen.andThen(!_)
     override def negate = self  // double negation is identity
   }
 
@@ -77,14 +80,21 @@ abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
    */
   def unary_!(): Predicate[A] = negate
 
-  def contramap[B](f: B => A): Predicate[B] = new FromApplyF[B] {
-    override def applyF(a: B) = Eval.defer(self.applyF(f(a)))
+
+  /**
+   * Alias for [[compose]]
+   */
+  def contramap[B](f: B => A): Predicate[B] = compose(f)
+
+  override def compose[B](f: B => A): Predicate[B] = new Predicate[B] {
+    val applyAndThen = self.applyAndThen compose f
   }
+  override def andThen[B](f: Boolean => B): AndThen[A, B] = applyAndThen andThen f
 }
 
 object Predicate extends PredicateInstances {
   def apply[A](f: A => Boolean): Predicate[A] = new Predicate[A] {
-    def apply(a: A) = f(a)
+    val applyAndThen = AndThen(f)
   }
 
   def empty: Predicate[Any] = apply(_ => false)
