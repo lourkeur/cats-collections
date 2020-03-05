@@ -5,7 +5,8 @@ import cats.data.AndThen
 
 private object PredicateHelpers {
   // use the static Eval instances to reduce memory footprint
-  @inline def boolToNow(b: Boolean) = if (b) Eval.True else Eval.False
+  @inline def boolToNow(b: Boolean): Eval[Boolean] =
+    if (b) Eval.True else Eval.False
 
   trait FromApplyF[A] extends Predicate[A] {
     override def applyF(a: A): Eval[Boolean] =
@@ -22,7 +23,7 @@ private object PredicateHelpers {
 sealed abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
   import PredicateHelpers._
 
-  def apply(a: A) = applyAndThen(a)
+  def apply(a: A): Boolean = applyAndThen(a)
 
   val applyAndThen: AndThen[A, Boolean]
 
