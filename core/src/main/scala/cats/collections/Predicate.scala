@@ -25,9 +25,9 @@ sealed abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =
 
   def apply(a: A): Boolean = applyAndThen(a)
 
-  val applyAndThen: AndThen[A, Boolean]
+  protected val applyAndThen: AndThen[A, Boolean]
 
-  private[collections] def applyF(a: A): Eval[Boolean] = boolToNow(applyAndThen(a))
+  protected def applyF(a: A): Eval[Boolean] = boolToNow(applyAndThen(a))
 
   /**
    * returns a predicate which is the union of this predicate and another
