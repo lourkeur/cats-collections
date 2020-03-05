@@ -11,7 +11,7 @@ private object PredicateHelpers {
   trait FromApplyF[A] extends Predicate[A] {
     override def applyF(a: A): Eval[Boolean] =
       throw new NotImplementedError("applyF implementation missing")
-    val applyAndThen = AndThen(applyF(_)).andThen(_.value)
+    val applyAndThen = AndThen(applyF _).andThen(_.value)
   }
 }
 
