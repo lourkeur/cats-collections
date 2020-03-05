@@ -91,5 +91,7 @@ class PredicateSpec extends CatsSuite {
       Iterator.fill(Depth)(!Predicate.empty).reduceRight(_ intersection _))
     testStackSafety("negation is stack safe",
       Iterator.iterate(Predicate.empty)(_.negate).drop(Depth).next())
+    testStackSafety("contramap() is stack safe",
+      Iterator.iterate(Predicate.empty)(_.contramap(identity _)).drop(Depth).next())
   }
 }
