@@ -3,36 +3,24 @@ package cats.collections
 import cats._
 import cats.data.AndThen
 
-private object PredicateHelpers {
-  trait FromApplyF[A] extends Predicate[A] {
-    override def applyF(a: A): Eval[Boolean] =
-      throw new NotImplementedError("applyF implementation missing")
-    val applyAndThen = AndThen(applyF _).andThen(_.value)
-  }
-}
-
 /**
  * An intensional set, which is a set which instead of enumerating its
  * elements as a extensional set does, it is defined by a predicate
  * which is a test for membership.
  */
-sealed abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =>
-  import PredicateHelpers._
+sealed abstract class Predicate[-A] { self =>
 
   def apply(a: A): Boolean = applyAndThen(a)
 
   protected val applyAndThen: AndThen[A, Boolean]
 
-  protected def applyF(a: A): Eval[Boolean] = applyAndThen(a) match {
-    case true => Eval.True
-    case false => Eval.False
-  }
+  protected def applyEval(a: A): Eval[Boolean]
 
   /**
    * returns a predicate which is the union of this predicate and another
    */
-  def union[B <: A](other: Predicate[B]): Predicate[B] = new FromApplyF[B] {
-    override def applyF(a: B) = Eval.defer(self.applyF(a)).flatMap(if (_) Eval.True else other.applyF(a))
+  def union[B <: A](other: Predicate[B]): Predicate[B] = Predicate.fromEval[B] {
+    a => Eval.defer(self.applyEval(a)).flatMap(if (_) Eval.True else other.applyEval(a))
   }
 
   /**
@@ -43,8 +31,8 @@ sealed abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =
   /**
    * returns a predicate which is the intersection of this predicate and another
    */
-  def intersection[B <: A](other: Predicate[B]): Predicate[B] = new FromApplyF[B] {
-    override def applyF(a: B) = Eval.defer(self.applyF(a)).flatMap(if (_) other.applyF(a) else Eval.False)
+  def intersection[B <: A](other: Predicate[B]): Predicate[B] = Predicate.fromEval[B] {
+    a => Eval.defer(self.applyEval(a)).flatMap(if (_) other.applyEval(a) else Eval.False)
   }
 
   /**
@@ -70,10 +58,7 @@ sealed abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =
   /**
    * Return the opposite predicate
    */
-  def negate: Predicate[A] = new Predicate[A] {
-    val applyAndThen = self.applyAndThen.andThen(!_)
-    override def negate = self  // double negation is identity
-  }
+  def negate: Predicate[A] = Predicate[A](applyAndThen.andThen(!_))
 
   /**
    * Return the opposite predicate
@@ -86,16 +71,29 @@ sealed abstract class Predicate[-A] extends scala.Function1[A, Boolean] { self =
    */
   def contramap[B](f: B => A): Predicate[B] = compose(f)
 
-  override def compose[B](f: B => A): Predicate[B] = new Predicate[B] {
-    val applyAndThen = self.applyAndThen compose f
-  }
-  override def andThen[B](f: Boolean => B): AndThen[A, B] = applyAndThen andThen f
+  def compose[B](f: B => A): Predicate[B] = Predicate[B](applyAndThen compose f)
+  def andThen[B](f: Boolean => B): AndThen[A, B] = applyAndThen andThen f
 }
 
 object Predicate extends PredicateInstances {
-  def apply[A](f: A => Boolean): Predicate[A] = new Predicate[A] {
-    val applyAndThen = AndThen(f)
+  // Note, we only have two subclasses in order to be gentle on the JVM JIT
+  // which treats classes with more than two subclasses differently
+
+  class FromEval[A](f: A => Eval[Boolean]) extends Predicate[A] {
+    def applyEval(a: A) = f(a)
+    val applyAndThen = AndThen(f).andThen(_.value)
   }
+  class FromAndThen[A](val applyAndThen: AndThen[A, Boolean]) extends Predicate[A] {
+    def applyEval(a: A) = applyAndThen(a) match {
+      // use static instances to reduce memory pressure
+      case true => Eval.True
+      case false => Eval.False
+    }
+  }
+
+  def apply[A](f: A => Boolean): Predicate[A] = new FromAndThen(AndThen(f))
+
+  def fromEval[A](f: A => Eval[Boolean]): Predicate[A] = new FromEval(f)
 
   def empty: Predicate[Any] = apply(_ => false)
 }
